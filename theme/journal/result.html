@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<title>Url-Shorten-Worker</title>
+</head>
+
+<body>
+	<div id="html-preview"></div>
+
+<textarea id="longURL" readonly hidden>
+{__FINAL_LINK__}
+</textarea>
+
+	<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+	<script>
+		// 把MarkDown文本转换为显示
+		function syncMarkDownView() {
+			const markdownContent = document.getElementById('longURL').value;
+			const htmlPreview = document.getElementById('html-preview');
+			htmlPreview.innerHTML = marked.parse(markdownContent);
+		}
+
+		document.addEventListener('DOMContentLoaded', function () {
+			syncMarkDownView();
+		});
+	</script>
+
+<a href="https://github.com/crazypeace/url-Shorten-Worker/"><img style="position: absolute; top: 0; right: 0; border: 0;" src="https://github.blog/wp-content/uploads/2008/12/forkme_right_gray_6d6d6d.png?resize=149%2C149" alt="Fork me on GitHub"></img></a>
+</body>
+
+</html>
