@@ -1,20 +1,30 @@
 let res
 
-// let apiSrv = "https://1way.eu.org"
 let apiSrv = window.location.pathname
+let password_value = document.querySelector("#passwordText").value
+// let apiSrv = "https://journal.crazypeace.workers.dev"
+// let password_value = "journaljournal"
+
+// 这是默认行为, 在不同的index.html中可以设置为不同的行为
+// This is default, you can define it to different funciton in different theme index.html
+let buildValueItemFunc = buildValueTxt
 
 function shorturl() {
   if (document.querySelector("#longURL").value == "") {
     alert("Url cannot be empty!")
     return
   }
+  
+  // 短链中不能有空格
+  // key can't have space in it
+  document.getElementById('keyPhrase').value = document.getElementById('keyPhrase').value.replace(/\s/g, "-");
 
   document.getElementById("addBtn").disabled = true;
   document.getElementById("addBtn").innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>Please wait...';
   fetch(apiSrv, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ cmd: "add", url: document.querySelector("#longURL").value, key: document.querySelector("#keyPhrase").value, password: document.querySelector("#passwordText").value })
+    body: JSON.stringify({ cmd: "add", url: document.querySelector("#longURL").value, key: document.querySelector("#keyPhrase").value, password: password_value })
   }).then(function (response) {
     return response.json();
   }).then(function (myJson) {
@@ -36,7 +46,9 @@ function shorturl() {
       document.getElementById("result").innerHTML = res.error;
     }
 
-    $('#resultModal').modal('show')
+    // 弹出消息窗口 Popup the result
+    var modal = new bootstrap.Modal(document.getElementById('resultModal'));
+    modal.show();
 
   }).catch(function (err) {
     alert("Unknow error. Please retry!");
@@ -71,7 +83,7 @@ function copyurl(id, attr) {
     window.getSelection().addRange(range);
     document.execCommand('copy');
     window.getSelection().removeAllRanges();
-    console.log('Copy success')
+    // console.log('Copy success')
   } catch (e) {
     console.log('Copy error')
   }
@@ -91,11 +103,11 @@ function loadUrlList() {
 
   // 文本框中的长链接
   let longUrl = document.querySelector("#longURL").value
-  console.log(longUrl)
+  // console.log(longUrl)
 
   // 遍历localStorage
   let len = localStorage.length
-  console.log(+len)
+  // console.log(+len)
   for (; len > 0; len--) {
     let keyShortURL = localStorage.key(len - 1)
     let valueLongURL = localStorage.getItem(keyShortURL)
@@ -114,16 +126,19 @@ function addUrlToList(shortUrl, longUrl) {
   let urlList = document.querySelector("#urlList")
 
   let child = document.createElement('div')
-  child.classList.add("list-group-item")
+  child.classList.add("mb-3", "list-group-item")
+
+  let keyItem = document.createElement('div')
+  keyItem.classList.add("input-group")
 
   // 删除按钮 Remove item button
   let delBtn = document.createElement('button')
-  delBtn.setAttribute('type', 'button')
-  delBtn.classList.add("btn", "btn-danger")
+  delBtn.setAttribute('type', 'button')  
+  delBtn.classList.add("btn", "btn-danger", "rounded-bottom-0")
   delBtn.setAttribute('onclick', 'deleteShortUrl(\"' + shortUrl + '\")')
   delBtn.setAttribute('id', 'delBtn-' + shortUrl)
   delBtn.innerText = "X"
-  child.appendChild(delBtn)
+  keyItem.appendChild(delBtn)
 
   // 查询访问次数按钮 Query visit times button
   let qryCntBtn = document.createElement('button')
@@ -132,19 +147,32 @@ function addUrlToList(shortUrl, longUrl) {
   qryCntBtn.setAttribute('onclick', 'queryVisitCount(\"' + shortUrl + '\")')
   qryCntBtn.setAttribute('id', 'qryCntBtn-' + shortUrl)
   qryCntBtn.innerText = "?"
-  child.appendChild(qryCntBtn)
+  keyItem.appendChild(qryCntBtn)
 
   // 短链接信息 Short url
   let keyTxt = document.createElement('span')
-  keyTxt.classList.add("lnk")
+  keyTxt.classList.add("form-control", "rounded-bottom-0")
   keyTxt.innerText = window.location.protocol + "//" + window.location.host + "/" + shortUrl
-  child.appendChild(keyTxt)
+  keyItem.appendChild(keyTxt)
+
+  // 显示二维码按钮
+  let qrcodeBtn = document.createElement('button')  
+  qrcodeBtn.setAttribute('type', 'button')
+  qrcodeBtn.classList.add("btn", "btn-info")
+  qrcodeBtn.setAttribute('onclick', 'buildQrcode(\"' + shortUrl + '\")')
+  qrcodeBtn.setAttribute('id', 'qrcodeBtn-' + shortUrl)
+  qrcodeBtn.innerText = "QR"
+  keyItem.appendChild(qrcodeBtn)
   
+  child.appendChild(keyItem)
+
+  // 插入一个二级码占位
+  let qrcodeItem = document.createElement('div');
+  qrcodeItem.setAttribute('id', 'qrcode-' + shortUrl)
+  child.appendChild(qrcodeItem)
+
   // 长链接信息 Long url
-  let valueTxt = document.createElement('div')
-  valueTxt.classList.add("lnk")
-  valueTxt.innerText = longUrl
-  child.appendChild(valueTxt)
+  child.appendChild(buildValueItemFunc(longUrl))
 
   urlList.append(child)
 }
@@ -162,7 +190,7 @@ function deleteShortUrl(delKeyPhrase) {
   fetch(apiSrv, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ cmd: "del", key: delKeyPhrase, password: document.querySelector("#passwordText").value })
+    body: JSON.stringify({ cmd: "del", key: delKeyPhrase, password: password_value })
   }).then(function (response) {
     return response.json();
   }).then(function (myJson) {
@@ -182,7 +210,8 @@ function deleteShortUrl(delKeyPhrase) {
     }
 
     // 弹出消息窗口 Popup the result
-    $('#resultModal').modal('show')
+    var modal = new bootstrap.Modal(document.getElementById('resultModal'));
+    modal.show();
 
   }).catch(function (err) {
     alert("Unknow error. Please retry!");
@@ -199,7 +228,7 @@ function queryVisitCount(qryKeyPhrase) {
   fetch(apiSrv, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ cmd: "qry", key: qryKeyPhrase + "-count", password: document.querySelector("#passwordText").value })
+    body: JSON.stringify({ cmd: "qry", key: qryKeyPhrase + "-count", password: password_value })
   }).then(function (response) {
     return response.json();
   }).then(function (myJson) {
@@ -210,7 +239,47 @@ function queryVisitCount(qryKeyPhrase) {
       document.getElementById("qryCntBtn-" + qryKeyPhrase).innerHTML = res.url;
     } else {
       document.getElementById("result").innerHTML = res.error;
-      $('#resultModal').modal('show')
+      // 弹出消息窗口 Popup the result
+      var modal = new bootstrap.Modal(document.getElementById('resultModal'));
+      modal.show();
+    }
+
+  }).catch(function (err) {
+    alert("Unknow error. Please retry!");
+    console.log(err);
+  })
+}
+
+function query1KV() {
+  let qryKeyPhrase = document.getElementById("keyForQuery").value;
+  if (qryKeyPhrase == "") {
+    return
+  }
+
+  // 从KV中查询 Query from KV
+  fetch(apiSrv, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cmd: "qry", key: qryKeyPhrase, password: password_value })
+  }).then(function (response) {
+    return response.json();
+  }).then(function (myJson) {
+    res = myJson;
+
+    // 成功查询 Succeed
+    if (res.status == "200") {
+      document.getElementById("longURL").value = res.url;
+      document.getElementById("keyPhrase").value = qryKeyPhrase;
+      // 触发input事件
+      document.getElementById("longURL").dispatchEvent(new Event('input', {
+        bubbles: true,
+        cancelable: true,
+      }))
+    } else {
+      document.getElementById("result").innerHTML = res.error;
+      // 弹出消息窗口 Popup the result
+      var modal = new bootstrap.Modal(document.getElementById('resultModal'));
+      modal.show();
     }
 
   }).catch(function (err) {
@@ -227,7 +296,7 @@ function loadKV() {
   fetch(apiSrv, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ cmd: "qryall", password: document.querySelector("#passwordText").value })
+    body: JSON.stringify({ cmd: "qryall", password: password_value })
   }).then(function (response) {    
     return response.json();
   }).then(function (myJson) {
@@ -245,7 +314,9 @@ function loadKV() {
 
     } else {
       document.getElementById("result").innerHTML = res.error;
-      $('#resultModal').modal('show')
+      // 弹出消息窗口 Popup the result
+      var modal = new bootstrap.Modal(document.getElementById('resultModal'));
+      modal.show();
     }
   }).catch(function (err) {
     alert("Unknow error. Please retry!");
@@ -253,8 +324,76 @@ function loadKV() {
   })
 }
 
-$(function () {
-  $('[data-toggle="popover"]').popover()
-})
+// 生成二维码
+function buildQrcode(shortUrl) {
+  // 感谢项目 https://github.com/lrsjng/jquery-qrcode
+  var options = {
+    // render method: 'canvas', 'image' or 'div'
+    render: 'canvas',
 
-loadUrlList()
+    // version range somewhere in 1 .. 40
+    minVersion: 1,
+    maxVersion: 40,
+
+    // error correction level: 'L', 'M', 'Q' or 'H'
+    ecLevel: 'Q',
+
+    // offset in pixel if drawn onto existing canvas
+    left: 0,
+    top: 0,
+
+    // size in pixel
+    size: 256,
+
+    // code color or image element
+    fill: '#000',
+
+    // background color or image element, null for transparent background
+    background: null,
+
+    // content
+    // 要转换的文本
+    text: window.location.protocol + "//" + window.location.host + "/" + shortUrl,
+
+    // corner radius relative to module width: 0.0 .. 0.5
+    radius: 0,
+
+    // quiet zone in modules
+    quiet: 0,
+
+    // modes
+    // 0: normal
+    // 1: label strip
+    // 2: label box
+    // 3: image strip
+    // 4: image box
+    mode: 0,
+
+    mSize: 0.1,
+    mPosX: 0.5,
+    mPosY: 0.5,
+
+    label: 'no label',
+    fontname: 'sans',
+    fontcolor: '#000',
+
+    image: null
+  };
+  $("#qrcode-" + shortUrl.replace(/(:|\.|\[|\]|,|=|@)/g, "\\$1").replace(/(:|\#|\[|\]|,|=|@)/g, "\\$1") ).empty().qrcode(options);
+}
+
+function buildValueTxt(longUrl) {
+  let valueTxt = document.createElement('div')
+  valueTxt.classList.add("form-control", "rounded-top-0")
+  valueTxt.innerText = longUrl
+  return valueTxt
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  var popoverTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="popover"]'))
+  var popoverList = popoverTriggerList.map(function (popoverTriggerEl) {
+    return new bootstrap.Popover(popoverTriggerEl)
+  });
+
+  loadUrlList();
+});
