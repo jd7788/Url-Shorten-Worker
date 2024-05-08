@@ -1,21 +1,23 @@
 const config = {
-  no_ref: "off", //Control the HTTP referrer header, if you want to create an anonymous link that will hide the HTTP Referer header, please set to "on" .
-  theme: "",//Homepage theme, use the empty value for default theme. To use urlcool theme, please fill with "theme/urlcool" .
-  cors: "on",//Allow Cross-origin resource sharing for API requests.
-  unique_link: false,//If it is true, the same long url will be shorten into the same short url
-  custom_link: true,//Allow users to customize the short url.
-  snapchat_mode: false,//The link will be distroyed after access.
-  visit_count: false,//Count visit times.
-  load_kv: false,//Load all from Cloudflare KV
-  shorturl_system: true,//Check value is valid URL && 302 jump to the value
+  result_page: false, // After get the value from KV, if use a page to show the result.
+  theme: "", // Homepage theme, use the empty value for default theme. To use urlcool theme, please fill with "theme/urlcool" .
+  cors: true, // Allow Cross-origin resource sharing for API requests.
+  unique_link: false, // If it is true, the same long url will be shorten into the same short url
+  custom_link: true, // Allow users to customize the short url.
+  overwrite_kv: false, // Allow user to overwrite an existed key.
+  snapchat_mode: false, // The link will be distroyed after access.
+  visit_count: false, // Count visit times.
+  load_kv: false, // Load all from Cloudflare KV
+  system_type: "shorturl", // shorturl, imghost, other types {pastebin, journal}
 }
 
+// key in protect_keylist can't read, add, del from UI and API
 const protect_keylist = [
   "password",
 ]
 
 let index_html = "https://crazypeace.github.io/Url-Shorten-Worker/" + config.theme + "/index.html"
-let no_ref_html = "https://crazypeace.github.io/Url-Shorten-Worker/no-ref.html"
+let result_html = "https://crazypeace.github.io/Url-Shorten-Worker/" + config.theme + "/result.html"
 
 const html404 = `<!DOCTYPE html>
   <html>
@@ -30,7 +32,7 @@ let response_header = {
   "Content-type": "text/html;charset=UTF-8;application/json",
 }
 
-if (config.cors == "on") {
+if (config.cors) {
   response_header = {
     "Content-type": "text/html;charset=UTF-8;application/json",
     "Access-Control-Allow-Origin": "*",
@@ -39,13 +41,25 @@ if (config.cors == "on") {
   }
 }
 
+function base64ToBlob(base64String) {
+  var parts = base64String.split(';base64,');
+  var contentType = parts[0].split(':')[1];
+  var raw = atob(parts[1]);
+  var rawLength = raw.length;
+  var uInt8Array = new Uint8Array(rawLength);
+  for (var i = 0; i < rawLength; ++i) {
+    uInt8Array[i] = raw.charCodeAt(i);
+  }
+  return new Blob([uInt8Array], { type: contentType });
+}
+
 async function randomString(len) {
   len = len || 6;
-  let $chars = 'ABCDEFGHJKMNPQRSTWXYZabcdefhijkmnprstwxyz2345678';    /*去掉了容易混淆的字符oOLl,9gq,Vv,Uu,I1 *** Easily confused characters removed */
-  let maxPos = $chars.length;
+  let chars = 'ABCDEFGHJKMNPQRSTWXYZabcdefhijkmnprstwxyz2345678';    /*去掉了容易混淆的字符oOLl,9gq,Vv,Uu,I1 *** Easily confused characters removed */
+  let maxPos = chars.length;
   let result = '';
   for (i = 0; i < len; i++) {
-    result += $chars.charAt(Math.floor(Math.random() * maxPos));
+    result += chars.charAt(Math.floor(Math.random() * maxPos));
   }
   return result;
 }
@@ -108,7 +122,7 @@ async function handleRequest(request) {
   const password_value = await LINKS.get("password");
 
   /************************/
-  // 以下是API接口的处理
+  // 以下是API接口的处理 Below is operation for API
 
   if (request.method === "POST") {
     let req = await request.json()
@@ -133,11 +147,11 @@ async function handleRequest(request) {
     }
 
     if (req_cmd == "add") {
-      if (config.shorturl_system && !await checkURL(req_url)) {
+      if ((config.system_type == "shorturl") && !await checkURL(req_url)) {
         return new Response(`{"status":500, "url": "` + req_url + `", "error":"Error: Url illegal."}`, {
           headers: response_header,
         })
-      }      
+      }
 
       let stat, random_key
       if (config.custom_link && (req_key != "")) {
@@ -148,8 +162,8 @@ async function handleRequest(request) {
           })
         }
 
-        let is_exist = await LINKS.get(req_key)
-        if (is_exist != null) {
+        let is_exist = await is_url_exist(req_key)
+        if ((!config.overwrite_kv) && (is_exist)) {
           return new Response(`{"status":500,"key": "` + req_key + `", "error":"Error: Specific key existed."}`, {
             headers: response_header,
           })
@@ -183,6 +197,7 @@ async function handleRequest(request) {
         })
       }
     } else if (req_cmd == "del") {
+      // Refuse to delete 'password' entry
       if (protect_keylist.includes(req_key)) {
         return new Response(`{"status":500, "key": "` + req_key + `", "error":"Error: Key in protect_keylist."}`, {
           headers: response_header,
@@ -200,9 +215,19 @@ async function handleRequest(request) {
         headers: response_header,
       })
     } else if (req_cmd == "qry") {
+      // Refuse to query 'password'
+      if (protect_keylist.includes(req_key)) {
+        return new Response(`{"status":500,"key": "` + req_key + `", "error":"Error: Key in protect_keylist."}`, {
+          headers: response_header,
+        })
+      }
+
       let value = await LINKS.get(req_key)
       if (value != null) {
-        return new Response(`{"status":200, "key": "` + req_key + `", "url": "` + value + `", "error":""}`, {
+        let jsonObjectRetrun = JSON.parse(`{"status":200, "error":"", "key":"", "url":""}`);
+        jsonObjectRetrun.key = req_key;
+        jsonObjectRetrun.url = value;
+        return new Response(JSON.stringify(jsonObjectRetrun), {
           headers: response_header,
         })
       } else {
@@ -224,12 +249,21 @@ async function handleRequest(request) {
                 
         for (var i = 0; i < keyList.keys.length; i++) {
           let item = keyList.keys[i];
+          // Hide 'password' from the query all result
+          if (protect_keylist.includes(item.name)) {
+            continue;
+          }
+          // Hide '-count' from the query all result
+          if (item.name.endsWith("-count")) {
+            continue;
+          }
+
           let url = await LINKS.get(item.name);
           
           let newElement = { "key": item.name, "value": url };
           // 填充要返回的列表 Fill the return list
           jsonObjectRetrun.kvlist.push(newElement);
-        }       
+        }
 
         return new Response(JSON.stringify(jsonObjectRetrun) , {
           headers: response_header,
@@ -249,10 +283,11 @@ async function handleRequest(request) {
   }
 
   /************************/
-  // 以下是浏览器直接访问worker页面的处理
+  // 以下是浏览器直接访问worker页面的处理 Below is operation for browser visit worker page
 
   const requestURL = new URL(request.url)
-  const path = requestURL.pathname.split("/")[1]
+  let path = requestURL.pathname.split("/")[1]
+  path = decodeURIComponent(path);
   const params = requestURL.search;
 
   // console.log(path)
@@ -261,86 +296,93 @@ async function handleRequest(request) {
   if (!path) {
     return Response.redirect("https://zelikk.blogspot.com/search/label/Url-Shorten-Worker", 302)
     /* new Response(html404, {
-      headers: {
-        "content-type": "text/html;charset=UTF-8",
-      },
+      headers: response_header,
       status: 404
     }) */
   }
 
   // 如果path符合password 显示操作页面index.html
+  // if path equals password, return index.html
   if (path == password_value) {
     let index = await fetch(index_html)
     index = await index.text()
     index = index.replace(/__PASSWORD__/gm, password_value)
+    // 操作页面文字修改
+    // index = index.replace(/短链系统变身/gm, "")
     return new Response(index, {
-      headers: {
-        "content-type": "text/html;charset=UTF-8",
-      },
+      headers: response_header,
     })
   }
 
   // 在KV中查询 短链接 对应的原链接
   // Query the value(long url) in KV by key(short url)
-  const value = await LINKS.get(path);
+  let value = await LINKS.get(path);
   // console.log(value)
 
-  if (value) {
-    // 计数功能
-    if (config.visit_count) {
-      // 获取并增加访问计数
-      let count = await LINKS.get(path + "-count");
-      if (count === null) {
-        await LINKS.put(path + "-count", "1"); // 初始化为1，因为这是首次访问
-      } else {
-        count = parseInt(count) + 1;
-        await LINKS.put(path + "-count", count.toString());
-      }
-    }
+  // 如果path是'password', 让查询结果为空, 不然直接就把password查出来了
+  // Protect password. If path equals 'password', set result null
+  if (protect_keylist.includes(path)) {
+    value = ""
+  }
 
-    // 如果阅后即焚模式
-    if (config.snapchat_mode) {
-      // 删除KV中的记录
-      // Remove record before jump to long url
-      await LINKS.delete(path)
-    }
-
-    // 作为一个短链系统, value就是long URL, 需要跳转
-    if (config.shorturl_system) {
-      // 带上参数部分, 拼装要跳转的最终网址
-      // URL to jump finally
-      let location;
-      if (params) {
-        location = value + params
-      } else {
-        location = value
-      }
-
-      if (config.no_ref == "on") {
-        let no_ref = await fetch(no_ref_html)
-        no_ref = await no_ref.text()
-        no_ref = no_ref.replace(/{Replace}/gm, location)
-        return new Response(no_ref, {
-          headers: {
-            "content-type": "text/html;charset=UTF-8",
-          },
-        })
-      } else {
-        return Response.redirect(location, 302)
-      }
-    } else {
-      // 如果只是一个单纯的key-value系统, 简单的显示value就行了
-      return new Response(value, {
-        headers: response_header,
-      })
-    }
-  } else {  
+  if (!value) {
+    // KV中没有数据, 返回404
     // If request not in KV, return 404
     return new Response(html404, {
-      headers: {
-        "content-type": "text/html;charset=UTF-8",
-      },
+      headers: response_header,
       status: 404
+    })
+  }
+
+  // 计数功能
+  if (config.visit_count) {
+    // 获取并增加访问计数
+    let count = await LINKS.get(path + "-count");
+    if (count === null) {
+      await LINKS.put(path + "-count", "1"); // 初始化为1，因为这是首次访问
+    } else {
+      count = parseInt(count) + 1;
+      await LINKS.put(path + "-count", count.toString());
+    }
+  }
+
+  // 如果阅后即焚模式
+  if (config.snapchat_mode) {
+    // 删除KV中的记录
+    // Remove record before jump to long url
+    await LINKS.delete(path)
+  }
+
+  // 带上参数部分, 拼装要跳转的最终网址
+  // URL to jump finally
+  if (params) {
+    value = value + params
+  }
+
+  // 如果自定义了结果页面
+  if (config.result_page) {
+    let result_page_html = await fetch(result_html)
+    let result_page_html_text = await result_page_html.text()      
+    result_page_html_text = result_page_html_text.replace(/{__FINAL_LINK__}/gm, value)
+    return new Response(result_page_html_text, {
+      headers: response_header,
+    })
+  } 
+
+  // 以下是不使用自定义结果页面的处理
+  // 作为一个短链系统, 需要跳转
+  if (config.system_type == "shorturl") {
+    return Response.redirect(value, 302)
+  } else if (config.system_type == "imghost") {
+    // 如果是图床      
+    var blob = base64ToBlob(value)
+    return new Response(blob, {
+      // 图片不能指定content-type为 text/plain
+    })
+  } else {
+    // 如果只是一个单纯的key-value系统, 简单的显示value就行了
+    return new Response(value, {
+      headers: response_header,
     })
   }
 }
